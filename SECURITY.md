@@ -10,7 +10,7 @@
 
 If you discover a security vulnerability in siteprobe:
 
-- **GitHub Security Advisory** (preferred): https://github.com/williamzujkowski/siteprobe/security/advisories/new
+- **GitHub Security Advisory** (preferred): https://github.com/nexus-substrate/siteprobe/security/advisories/new
 - **Email**: williamzujkowski@gmail.com
 
 Please do NOT open a public GitHub issue for security vulnerabilities.
