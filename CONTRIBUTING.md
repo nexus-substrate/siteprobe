@@ -5,7 +5,7 @@ Thanks for your interest. Bug reports, improvements, and new probe checks are we
 ## Development
 
 ```sh
-git clone https://github.com/williamzujkowski/siteprobe
+git clone https://github.com/nexus-substrate/siteprobe
 cd siteprobe
 npm install
 npm run build
@@ -51,4 +51,4 @@ File an issue with:
 
 ## Security
 
-For security vulnerabilities, do not open a public issue. Email williamzujkowski@gmail.com or use [GitHub Security Advisories](https://github.com/williamzujkowski/siteprobe/security/advisories/new).
+For security vulnerabilities, do not open a public issue. Email williamzujkowski@gmail.com or use [GitHub Security Advisories](https://github.com/nexus-substrate/siteprobe/security/advisories/new).
