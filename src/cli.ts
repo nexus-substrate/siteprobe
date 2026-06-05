@@ -13,6 +13,7 @@
 
 import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { runBatch } from './batch.js';
 import { renderBatch, renderJson } from './render.js';
 
@@ -47,7 +48,7 @@ Exit codes:
   2 = usage error
 `;
 
-interface CliOptions {
+export interface CliOptions {
   readonly targets: readonly string[];
   readonly timeoutMs: number;
   readonly concurrency: number;
@@ -125,7 +126,7 @@ async function main(argv: readonly string[]): Promise<number> {
   return batch.failCount > 0 ? 1 : 0;
 }
 
-interface ParsedArgs {
+export interface ParsedArgs {
   values: {
     config?: string;
     timeout?: string;
@@ -139,12 +140,12 @@ interface ParsedArgs {
   positionals: string[];
 }
 
-function buildOptions(parsed: ParsedArgs): CliOptions | Error {
-  const timeoutMs = parseIntOption(parsed.values.timeout, 'timeout');
+export function buildOptions(parsed: ParsedArgs): CliOptions | Error {
+  const timeoutMs = parseIntOption(parsed.values.timeout, 'timeout', 1);
   if (timeoutMs instanceof Error) return timeoutMs;
-  const concurrency = parseIntOption(parsed.values.concurrency, 'concurrency');
+  const concurrency = parseIntOption(parsed.values.concurrency, 'concurrency', 1);
   if (concurrency instanceof Error) return concurrency;
-  const tlsWarnDays = parseIntOption(parsed.values['tls-warn-days'], 'tls-warn-days');
+  const tlsWarnDays = parseIntOption(parsed.values['tls-warn-days'], 'tls-warn-days', 1);
   if (tlsWarnDays instanceof Error) return tlsWarnDays;
 
   const method = parsed.values.method ?? 'GET';
@@ -177,11 +178,15 @@ function buildOptions(parsed: ParsedArgs): CliOptions | Error {
   };
 }
 
-function parseIntOption(value: string | undefined, name: string): number | Error {
-  if (value === undefined) return 0;
+export function parseIntOption(
+  value: string | undefined,
+  name: string,
+  min = 0
+): number | Error {
+  if (value === undefined) return min;
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-    return new Error(`--${name} must be a non-negative integer (got: ${value})`);
+  if (!Number.isFinite(n) || n < min || !Number.isInteger(n)) {
+    return new Error(`--${name} must be an integer greater than or equal to ${min} (got: ${value})`);
   }
   return n;
 }
@@ -209,13 +214,14 @@ function loadConfigTargets(path: string): readonly string[] | Error {
   }
 }
 
-// Run main
-main(process.argv)
-  .then((code) => {
-    process.exit(code);
-  })
-  .catch((err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`Fatal: ${msg}\n`);
-    process.exit(1);
-  });
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv)
+    .then((code) => {
+      process.exit(code);
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`Fatal: ${msg}\n`);
+      process.exit(1);
+    });
+}
