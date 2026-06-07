@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest run",
+    "test": "npm run lint && vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/",
@@ -38,8 +38,12 @@
     "dist/"
   ],
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.0.0",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "typescript": "^5.9.0",
+    "typescript-eslint": "^8.60.1",
     "vitest": "^4.0.0"
   }
 }
