@@ -38,6 +38,8 @@ export interface ProbeResult {
     | 'connection_refused'
     | 'tls_expired'
     | 'http_error'
+    | 'blocked'
+    | 'too_many_redirects'
     | 'unknown';
   /** Timestamp when probe started (ISO 8601). */
   readonly startedAt: string;
@@ -49,6 +51,19 @@ export interface ProbeOptions {
   readonly timeoutMs?: number;
   /** Follow HTTP redirects (default: true). */
   readonly followRedirects?: boolean;
+  /** Maximum number of redirect hops to follow (default: 5). */
+  readonly maxRedirects?: number;
+  /**
+   * Allow probing loopback addresses (127.0.0.0/8, ::1). Off by default:
+   * siteprobe blocks loopback/private/link-local/reserved targets unless
+   * explicitly opted in (SSRF guard).
+   */
+  readonly allowLocal?: boolean;
+  /**
+   * Allow probing private, link-local (incl. cloud-metadata 169.254.169.254),
+   * and loopback addresses. Off by default. Implies `allowLocal`.
+   */
+  readonly allowPrivate?: boolean;
   /** Expected HTTP status code for ok=true (default: 200-399). */
   readonly expectedStatus?: number | ReadonlyArray<number>;
   /** Warn if TLS cert expires within this many days (default: 30). */
