@@ -13,7 +13,8 @@
 
 import { parseArgs } from 'node:util';
 import { readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { runBatch } from './batch.js';
 import { renderBatch, renderJson } from './render.js';
 
@@ -25,12 +26,20 @@ Usage:
   siteprobe --help
 
 Options:
-  --config <path>       Path to YAML/JSON config file with a 'targets' array.
+  --config <path>       Path to a YAML or JSON config file with a 'targets'
+                        array. Format is detected by extension (.yaml/.yml/
+                        .json) with content sniffing as a fallback.
   --timeout <ms>        Per-probe timeout in milliseconds (default: 5000).
   --concurrency <n>     Maximum concurrent probes (default: 10).
   --tls-warn-days <n>   Warn if TLS cert expires within N days (default: 30).
   --method <GET|HEAD>   HTTP method (default: GET).
   --expect <code>       Expected HTTP status code (default: 200-399).
+  --allow-local         Allow probing loopback addresses (127.0.0.0/8, ::1).
+  --allow-private       Allow probing private/link-local/loopback addresses
+                        (incl. cloud-metadata 169.254.169.254). Implies
+                        --allow-local. Off by default (SSRF guard).
+  --no-follow-redirects Do not follow HTTP 3xx redirects (default: follow).
+  --max-redirects <n>   Maximum redirect hops to follow (default: 5).
   --json                Output results as JSON.
   --no-color            Disable ANSI color codes.
   --version, -v         Show version.
@@ -55,6 +64,10 @@ export interface CliOptions {
   readonly tlsWarnDays: number;
   readonly method: 'GET' | 'HEAD';
   readonly expectedStatus: number | undefined;
+  readonly allowLocal: boolean;
+  readonly allowPrivate: boolean;
+  readonly followRedirects: boolean;
+  readonly maxRedirects: number;
   readonly json: boolean;
   readonly noColor: boolean;
 }
@@ -87,6 +100,10 @@ async function main(argv: readonly string[]): Promise<number> {
         'tls-warn-days': { type: 'string', default: '30' },
         method: { type: 'string', default: 'GET' },
         expect: { type: 'string' },
+        'allow-local': { type: 'boolean', default: false },
+        'allow-private': { type: 'boolean', default: false },
+        'no-follow-redirects': { type: 'boolean', default: false },
+        'max-redirects': { type: 'string', default: '5' },
         json: { type: 'boolean', default: false },
         'no-color': { type: 'boolean', default: false },
       },
@@ -115,6 +132,10 @@ async function main(argv: readonly string[]): Promise<number> {
     concurrency: opts.concurrency,
     tlsWarnDays: opts.tlsWarnDays,
     method: opts.method,
+    allowLocal: opts.allowLocal,
+    allowPrivate: opts.allowPrivate,
+    followRedirects: opts.followRedirects,
+    maxRedirects: opts.maxRedirects,
     ...(opts.expectedStatus !== undefined ? { expectedStatus: opts.expectedStatus } : {}),
   });
 
@@ -134,6 +155,10 @@ export interface ParsedArgs {
     'tls-warn-days'?: string;
     method?: string;
     expect?: string;
+    'allow-local'?: boolean;
+    'allow-private'?: boolean;
+    'no-follow-redirects'?: boolean;
+    'max-redirects'?: string;
     json?: boolean;
     'no-color'?: boolean;
   };
@@ -147,6 +172,8 @@ export function buildOptions(parsed: ParsedArgs): CliOptions | Error {
   if (concurrency instanceof Error) return concurrency;
   const tlsWarnDays = parseIntOption(parsed.values['tls-warn-days'], 'tls-warn-days', 1);
   if (tlsWarnDays instanceof Error) return tlsWarnDays;
+  const maxRedirects = parseIntOption(parsed.values['max-redirects'], 'max-redirects');
+  if (maxRedirects instanceof Error) return maxRedirects;
 
   const method = parsed.values.method ?? 'GET';
   if (method !== 'GET' && method !== 'HEAD') {
@@ -173,6 +200,10 @@ export function buildOptions(parsed: ParsedArgs): CliOptions | Error {
     tlsWarnDays,
     method,
     expectedStatus,
+    allowLocal: parsed.values['allow-local'] ?? false,
+    allowPrivate: parsed.values['allow-private'] ?? false,
+    followRedirects: !(parsed.values['no-follow-redirects'] ?? false),
+    maxRedirects,
     json: parsed.values.json ?? false,
     noColor: parsed.values['no-color'] ?? false,
   };
@@ -191,11 +222,24 @@ export function parseIntOption(
   return n;
 }
 
-/** Load targets from a JSON config file. Accepts `{ targets: string[] }`. */
-function loadConfigTargets(path: string): readonly string[] | Error {
+/**
+ * Load targets from a YAML or JSON config file. Accepts `{ targets: string[] }`.
+ *
+ * Format is selected by file extension (`.json` → JSON, `.yaml`/`.yml` → YAML).
+ * For any other extension, YAML is attempted first (YAML is a JSON superset, so
+ * this also accepts JSON content) for backward compatibility.
+ */
+export function loadConfigTargets(path: string): readonly string[] | Error {
   try {
     const content = readFileSync(path, 'utf-8');
-    const parsed: unknown = JSON.parse(content);
+    const lower = path.toLowerCase();
+    let parsed: unknown;
+    if (lower.endsWith('.json')) {
+      parsed = JSON.parse(content);
+    } else {
+      // YAML 1.2 is a superset of JSON, so this parses both YAML and JSON.
+      parsed = parseYaml(content);
+    }
     if (
       typeof parsed !== 'object' ||
       parsed === null ||
@@ -214,7 +258,19 @@ function loadConfigTargets(path: string): readonly string[] | Error {
   }
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** True when this module was invoked directly as the CLI entry point. */
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return fileURLToPath(import.meta.url) === entry;
+  } catch {
+    return false;
+  }
+}
+
+// Run main only when executed as the CLI (not when imported by tests).
+if (isMainModule()) {
   main(process.argv)
     .then((code) => {
       process.exit(code);

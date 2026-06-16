@@ -1,8 +1,11 @@
 /**
- * Tests for CLI option parsing.
+ * Tests for CLI option parsing (#9) and config loading — JSON and YAML (#14).
  */
-import { describe, expect, it } from 'vitest';
-import { buildOptions, parseIntOption, type ParsedArgs } from './cli.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildOptions, parseIntOption, loadConfigTargets, type ParsedArgs } from './cli.js';
 
 function parsed(values: ParsedArgs['values']): ParsedArgs {
   return {
@@ -10,6 +13,22 @@ function parsed(values: ParsedArgs['values']): ParsedArgs {
     positionals: ['https://example.com'],
   };
 }
+
+const dirs: string[] = [];
+function tmpFile(name: string, content: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'siteprobe-'));
+  dirs.push(dir);
+  const p = join(dir, name);
+  writeFileSync(p, content, 'utf-8');
+  return p;
+}
+
+afterEach(() => {
+  while (dirs.length > 0) {
+    const d = dirs.pop();
+    if (d !== undefined) rmSync(d, { recursive: true, force: true });
+  }
+});
 
 describe('parseIntOption', () => {
   it('rejects values below the configured minimum', () => {
@@ -50,5 +69,44 @@ describe('buildOptions', () => {
       concurrency: 1,
       tlsWarnDays: 1,
     });
+  });
+});
+
+describe('loadConfigTargets', () => {
+  it('parses a JSON config with a targets array', () => {
+    const p = tmpFile('siteprobe.json', JSON.stringify({ targets: ['https://a.com', 'https://b.com'] }));
+    const result = loadConfigTargets(p);
+    expect(result).toEqual(['https://a.com', 'https://b.com']);
+  });
+
+  it('parses a YAML config (.yaml) with a targets array', () => {
+    const p = tmpFile('siteprobe.yaml', 'targets:\n  - https://a.com\n  - https://b.com\n');
+    const result = loadConfigTargets(p);
+    expect(result).toEqual(['https://a.com', 'https://b.com']);
+  });
+
+  it('parses a YAML config (.yml) with a targets array', () => {
+    const p = tmpFile('siteprobe.yml', 'targets:\n  - https://x.com\n');
+    const result = loadConfigTargets(p);
+    expect(result).toEqual(['https://x.com']);
+  });
+
+  it('falls back to YAML/JSON content sniffing for non-standard extensions', () => {
+    // A .conf file containing YAML should still parse.
+    const p = tmpFile('config.conf', 'targets:\n  - https://y.com\n');
+    const result = loadConfigTargets(p);
+    expect(result).toEqual(['https://y.com']);
+  });
+
+  it('returns an Error when targets is missing', () => {
+    const p = tmpFile('bad.json', JSON.stringify({ nope: true }));
+    const result = loadConfigTargets(p);
+    expect(result).toBeInstanceOf(Error);
+  });
+
+  it('returns an Error on malformed content', () => {
+    const p = tmpFile('bad.yaml', 'targets: [unclosed');
+    const result = loadConfigTargets(p);
+    expect(result).toBeInstanceOf(Error);
   });
 });
