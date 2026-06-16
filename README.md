@@ -39,7 +39,9 @@ siteprobe check --config ./siteprobe.json
 
 ### Config file
 
-A JSON file with a `targets` array:
+A YAML or JSON file with a `targets` array. The format is detected by extension
+(`.yaml`/`.yml` → YAML, `.json` → JSON; other extensions are parsed as YAML,
+which is a JSON superset).
 
 ```json
 {
@@ -50,6 +52,36 @@ A JSON file with a `targets` array:
   ]
 }
 ```
+
+```yaml
+# siteprobe.yaml
+targets:
+  - https://example.com
+  - https://api.example.com:8080/health
+  - https://internal.example.com
+```
+
+### Probing internal targets (SSRF guard)
+
+By default siteprobe **blocks** targets that resolve to loopback, private
+(RFC1918 / unique-local), link-local (including the cloud-metadata address
+`169.254.169.254`), or other reserved ranges, and reports them with
+`errorCategory: 'blocked'`. This prevents siteprobe from being used as an SSRF
+primitive when target lists come from untrusted config.
+
+To deliberately probe internal endpoints, opt in:
+
+```sh
+# Allow loopback (127.0.0.0/8, ::1)
+siteprobe check --allow-local http://localhost:8080/health
+
+# Allow private + link-local + loopback
+siteprobe check --allow-private http://10.0.0.5/health
+```
+
+The guard validates the **resolved IP** (not just the hostname) and pins the
+connection to it, defending against DNS rebinding. It is re-applied on every
+redirect hop.
 
 ### Expected output
 
@@ -119,6 +151,10 @@ console.log(`${batch.okCount}/${batch.results.length} ok in ${batch.totalDuratio
 | `--tls-warn-days <n>` | 30 | Warn if TLS cert expires within N days |
 | `--method <GET\|HEAD>` | GET | HTTP method |
 | `--expect <code>` | 200-399 | Expected HTTP status code |
+| `--allow-local` | false | Allow probing loopback addresses (SSRF opt-in) |
+| `--allow-private` | false | Allow probing private/link-local/loopback addresses (SSRF opt-in; implies `--allow-local`) |
+| `--no-follow-redirects` | false | Do not follow HTTP 3xx redirects |
+| `--max-redirects <n>` | 5 | Maximum redirect hops to follow |
 | `--json` | false | Output as JSON |
 | `--no-color` | false | Disable ANSI colors |
 
@@ -134,11 +170,11 @@ For each target:
 - **HTTP status** — did the server respond with the expected code?
 - **Response time** — total wall-clock probe duration in milliseconds
 - **TLS certificate** — valid? When does it expire? (warns if within `--tls-warn-days`)
-- **Error category** — structured classification: `timeout`, `dns_failure`, `connection_refused`, `tls_expired`, `http_error`, `unknown`
+- **Error category** — structured classification: `timeout`, `dns_failure`, `connection_refused`, `tls_expired`, `http_error`, `blocked`, `too_many_redirects`, `unknown`
 
 ## Why siteprobe?
 
-- **Zero dependencies** — pure Node.js stdlib (dns, https). No npm bloat.
+- **Lean dependencies** — pure Node.js stdlib (dns, https) for probing; one small dependency (`yaml`) for config parsing. No npm bloat.
 - **Fast** — bounded concurrency, per-probe timeouts, no sequential waiting.
 - **Structured output** — JSON mode for scripting; glyph/ASCII auto-detection.
 - **Honest errors** — categorized, not just string-matched.
